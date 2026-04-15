@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sentiment Analyzer</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <div class="container">
+    <h1>Product Review Sentiment</h1>
+    <p class="subtitle">Paste a review below and let the AI classify it</p>
+
+    <!-- Tab switcher -->
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('single')">Single Review</button>
+      <button class="tab" onclick="switchTab('batch')">Batch (CSV)</button>
+    </div>
+
+    <!-- ── Single review panel ── -->
+    <div id="single-panel">
+      <textarea id="review-input" placeholder="e.g. This product is absolutely fantastic! Great quality and fast shipping."></textarea>
+      <div class="char-count"><span id="char-count">0</span> / 1000 characters</div>
+      <button class="btn-primary" onclick="analyzeSingle()">Analyze Sentiment</button>
+
+      <div id="single-result" class="result-box hidden">
+        <div class="result-header">
+          <span id="res-emoji" class="emoji"></span>
+          <span id="res-label" class="label"></span>
+        </div>
+        <div class="confidence-label">Confidence: <strong id="res-score"></strong></div>
+        <div class="bar-wrap">
+          <div class="bar" id="res-bar"></div>
+        </div>
+      </div>
+
+      <div id="single-error" class="error-box hidden"></div>
+    </div>
+
+    <!-- ── Batch panel ── -->
+    <div id="batch-panel" class="hidden">
+      <p class="hint">Upload a CSV file with a column named <code>review</code>.</p>
+      <input type="file" id="csv-input" accept=".csv" onchange="handleCSV(event)" />
+      <button class="btn-primary" id="batch-btn" onclick="analyzeBatch()" disabled>Analyze All</button>
+
+      <div id="batch-results"></div>
+      <button class="btn-secondary hidden" id="download-btn" onclick="downloadCSV()">Download Results</button>
+    </div>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
