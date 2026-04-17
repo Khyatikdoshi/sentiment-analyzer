@@ -1,14 +1,13 @@
-import os
 import re
 import io
 import nltk
-import requests
 import warnings
 import pandas as pd
 warnings.filterwarnings('ignore')
 
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
+from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 
 nltk.download('stopwords', quiet=True)
 from nltk.corpus import stopwords
@@ -16,23 +15,15 @@ from nltk.corpus import stopwords
 app = Flask(__name__)
 CORS(app)
 
-# ── HuggingFace Inference API (no model loaded locally = no OOM) ────────────
-HF_TOKEN = os.environ.get("HF_TOKEN", "")
-HF_API_URL = "https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english"
-HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
+# ── Load model once at startup ──────────────────────────────────────────────
+MODEL_PATH = 'kritiiix/sentiment-analyzer'
+print("Loading model... (this takes ~15 seconds on first run)")
 
-def hf_predict(text):
-    response = requests.post(HF_API_URL, headers=HEADERS, json={"inputs": text})
-    response.raise_for_status()
-    result = response.json()
-    # HF returns [[{label, score}, {label, score}]]
-    if isinstance(result, list) and isinstance(result[0], list):
-        result = result[0]
-    # Pick highest score
-    best = max(result, key=lambda x: x['score'])
-    return best['label'], best['score']
+tokenizer  = AutoTokenizer.from_pretrained(MODEL_PATH)
+model      = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
+classifier = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
 
-print("✅ App ready — using HuggingFace Inference API (no local model)")
+print("✅ Model ready")
 
 # ── Text cleaner ────────────────────────────────────────────────────────────
 stop_words = set(stopwords.words('english'))
@@ -62,13 +53,10 @@ def predict():
         return jsonify({'error': 'Review too short'}), 400
 
     cleaned = clean(text)[:512]
+    result  = classifier(cleaned)[0]
 
-    try:
-        label, score = hf_predict(cleaned)
-    except Exception as e:
-        return jsonify({'error': f'Model API error: {str(e)}'}), 500
-
-    confidence = round(score * 100, 1)
+    label      = result['label']
+    confidence = round(result['score'] * 100, 1)
 
     if label in ('LABEL_1', 'POSITIVE'):
         display_label = 'POSITIVE'
@@ -112,7 +100,7 @@ def batch():
 
         reviews = df[col].dropna().astype(str).tolist()
 
-    # ── Handle JSON body ────────────────────────────────────────────────
+    # ── Handle JSON body (old behaviour kept for compatibility) ─────────
     elif request.is_json:
         body    = request.get_json()
         reviews = body.get('reviews', [])
@@ -136,26 +124,18 @@ def batch():
             })
             continue
 
-        try:
-            label, score = hf_predict(cleaned)
-            display = 'POSITIVE' if label in ('LABEL_1', 'POSITIVE') else 'NEGATIVE'
-            results.append({
-                'text':       str(r)[:100] + ('...' if len(str(r)) > 100 else ''),
-                'label':      display,
-                'confidence': round(score * 100, 1),
-                'emoji':      '😊' if display == 'POSITIVE' else '😞'
-            })
-        except Exception as e:
-            results.append({
-                'text':       str(r)[:100],
-                'label':      'ERROR',
-                'confidence': 0,
-                'emoji':      '❌'
-            })
+        res     = classifier(cleaned)[0]
+        label   = res['label']
+        display = 'POSITIVE' if label in ('LABEL_1', 'POSITIVE') else 'NEGATIVE'
+        results.append({
+            'text':       str(r)[:100] + ('...' if len(str(r)) > 100 else ''),
+            'label':      display,
+            'confidence': round(res['score'] * 100, 1),
+            'emoji':      '😊' if display == 'POSITIVE' else '😞'
+        })
 
     return jsonify(results)
 
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+    app.run(debug=True, port=5000)
