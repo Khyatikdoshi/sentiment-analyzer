@@ -16,7 +16,7 @@ app = Flask(__name__)
 CORS(app)
 
 # ── Load model once at startup ──────────────────────────────────────────────
-MODEL_PATH = './saved_model'
+MODEL_PATH = 'kritiiix/sentiment-analyzer'
 print("Loading model... (this takes ~15 seconds on first run)")
 
 tokenizer  = AutoTokenizer.from_pretrained(MODEL_PATH)
