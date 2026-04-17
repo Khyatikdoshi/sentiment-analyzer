@@ -2,13 +2,13 @@ import os
 import re
 import io
 import nltk
+import requests
 import warnings
 import pandas as pd
 warnings.filterwarnings('ignore')
 
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-from transformers import pipeline
 
 nltk.download('stopwords', quiet=True)
 from nltk.corpus import stopwords
@@ -16,13 +16,23 @@ from nltk.corpus import stopwords
 app = Flask(__name__)
 CORS(app)
 
-# ── Load model once at startup ──────────────────────────────────────────────
-MODEL_PATH = 'distilbert-base-uncased-finetuned-sst-2-english'
-print("Loading model... (this takes ~15 seconds on first run)")
+# ── HuggingFace Inference API (no model loaded locally = no OOM) ────────────
+HF_TOKEN = os.environ.get("HF_TOKEN", "")
+HF_API_URL = "https://api-inference.huggingface.co/models/distilbert-base-uncased-finetuned-sst-2-english"
+HEADERS = {"Authorization": f"Bearer {HF_TOKEN}"}
 
-classifier = pipeline("sentiment-analysis", model=MODEL_PATH)
+def hf_predict(text):
+    response = requests.post(HF_API_URL, headers=HEADERS, json={"inputs": text})
+    response.raise_for_status()
+    result = response.json()
+    # HF returns [[{label, score}, {label, score}]]
+    if isinstance(result, list) and isinstance(result[0], list):
+        result = result[0]
+    # Pick highest score
+    best = max(result, key=lambda x: x['score'])
+    return best['label'], best['score']
 
-print("✅ Model ready")
+print("✅ App ready — using HuggingFace Inference API (no local model)")
 
 # ── Text cleaner ────────────────────────────────────────────────────────────
 stop_words = set(stopwords.words('english'))
@@ -52,10 +62,13 @@ def predict():
         return jsonify({'error': 'Review too short'}), 400
 
     cleaned = clean(text)[:512]
-    result  = classifier(cleaned)[0]
 
-    label      = result['label']
-    confidence = round(result['score'] * 100, 1)
+    try:
+        label, score = hf_predict(cleaned)
+    except Exception as e:
+        return jsonify({'error': f'Model API error: {str(e)}'}), 500
+
+    confidence = round(score * 100, 1)
 
     if label in ('LABEL_1', 'POSITIVE'):
         display_label = 'POSITIVE'
@@ -91,7 +104,6 @@ def batch():
         except Exception as e:
             return jsonify({'error': f'Could not read CSV: {str(e)}'}), 400
 
-        # Accept 'review' or 'Review' or 'REVIEW' column
         col = next((c for c in df.columns if c.strip().lower() == 'review'), None)
         if col is None:
             return jsonify({
@@ -100,7 +112,7 @@ def batch():
 
         reviews = df[col].dropna().astype(str).tolist()
 
-    # ── Handle JSON body (old behaviour kept for compatibility) ─────────
+    # ── Handle JSON body ────────────────────────────────────────────────
     elif request.is_json:
         body    = request.get_json()
         reviews = body.get('reviews', [])
@@ -115,7 +127,6 @@ def batch():
     for r in reviews:
         cleaned = clean(str(r))[:512]
 
-        # Skip empty reviews after cleaning
         if not cleaned:
             results.append({
                 'text':       str(r)[:100],
@@ -125,15 +136,22 @@ def batch():
             })
             continue
 
-        res     = classifier(cleaned)[0]
-        label   = res['label']
-        display = 'POSITIVE' if label in ('LABEL_1', 'POSITIVE') else 'NEGATIVE'
-        results.append({
-            'text':       str(r)[:100] + ('...' if len(str(r)) > 100 else ''),
-            'label':      display,
-            'confidence': round(res['score'] * 100, 1),
-            'emoji':      '😊' if display == 'POSITIVE' else '😞'
-        })
+        try:
+            label, score = hf_predict(cleaned)
+            display = 'POSITIVE' if label in ('LABEL_1', 'POSITIVE') else 'NEGATIVE'
+            results.append({
+                'text':       str(r)[:100] + ('...' if len(str(r)) > 100 else ''),
+                'label':      display,
+                'confidence': round(score * 100, 1),
+                'emoji':      '😊' if display == 'POSITIVE' else '😞'
+            })
+        except Exception as e:
+            results.append({
+                'text':       str(r)[:100],
+                'label':      'ERROR',
+                'confidence': 0,
+                'emoji':      '❌'
+            })
 
     return jsonify(results)
 
