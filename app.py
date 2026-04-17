@@ -1,3 +1,4 @@
+import os
 import re
 import io
 import nltk
@@ -7,7 +8,7 @@ warnings.filterwarnings('ignore')
 
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
-from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+from transformers import pipeline
 
 nltk.download('stopwords', quiet=True)
 from nltk.corpus import stopwords
@@ -16,12 +17,10 @@ app = Flask(__name__)
 CORS(app)
 
 # ── Load model once at startup ──────────────────────────────────────────────
-MODEL_PATH = 'kritiiix/sentiment-analyzer'
+MODEL_PATH = 'distilbert-base-uncased-finetuned-sst-2-english'
 print("Loading model... (this takes ~15 seconds on first run)")
 
-tokenizer  = AutoTokenizer.from_pretrained(MODEL_PATH)
-model      = AutoModelForSequenceClassification.from_pretrained(MODEL_PATH)
-classifier = pipeline("sentiment-analysis", model=model, tokenizer=tokenizer)
+classifier = pipeline("sentiment-analysis", model=MODEL_PATH)
 
 print("✅ Model ready")
 
@@ -140,4 +139,5 @@ def batch():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
